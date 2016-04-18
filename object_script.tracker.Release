@@ -1,0 +1,13 @@
+INPUT(
+./release\main.o
+./release\fhog.o
+./release\kcftracker.o
+./release\rdetector.o
+./release\selector.o
+./release\framereader.o
+./release\mainwindow.o
+./release\fpscounter.o
+./release\videogenerator.o
+./release\trackerAPI.o
+./release\moc_mainwindow.o
+);

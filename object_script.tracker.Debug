@@ -1,0 +1,13 @@
+INPUT(
+./debug\main.o
+./debug\fhog.o
+./debug\kcftracker.o
+./debug\rdetector.o
+./debug\selector.o
+./debug\framereader.o
+./debug\mainwindow.o
+./debug\fpscounter.o
+./debug\videogenerator.o
+./debug\trackerAPI.o
+./debug\moc_mainwindow.o
+);
