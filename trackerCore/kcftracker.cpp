@@ -88,13 +88,16 @@ the use of this software, even if advised of the possibility of such damage.
 #include "labdata.hpp"
 #endif
 
+#include <sstream>
+
 // Constructor
-KCFTracker::KCFTracker(bool hog, bool fixed_window, bool multiscale, bool lab)
+KCFTracker::KCFTracker(bool hog, bool fixed_window, bool multiscale, bool lab) :
+    needStopTrain_(false)
 {
 
     // Parameters equal in all cases
     lambda = 0.0001;
-    padding = 2.5; 
+    padding = 2.5;
     //output_sigma_factor = 0.1;
     output_sigma_factor = 0.125;
 
@@ -139,7 +142,7 @@ KCFTracker::KCFTracker(bool hog, bool fixed_window, bool multiscale, bool lab)
     if (multiscale) { // multiscale
         template_size = 96;
         //template_size = 100;
-        scale_step = 1.05;
+        scale_step = 1.07;
         scale_weight = 0.95;
         if (!fixed_window) {
             //printf("Multiscale does not support non-fixed window.\n");
@@ -160,6 +163,7 @@ KCFTracker::KCFTracker(bool hog, bool fixed_window, bool multiscale, bool lab)
 // Initialize tracker 
 void KCFTracker::init(const cv::Rect &roi, cv::Mat image)
 {
+    _accuracy = 1.f;
     _roi = roi;
     assert(roi.width >= 0 && roi.height >= 0);
     _tmpl = getFeatures(image, 1);
@@ -167,10 +171,13 @@ void KCFTracker::init(const cv::Rect &roi, cv::Mat image)
     _alphaf = cv::Mat(size_patch[0], size_patch[1], CV_32FC2, float(0));
     //_num = cv::Mat(size_patch[0], size_patch[1], CV_32FC2, float(0));
     //_den = cv::Mat(size_patch[0], size_patch[1], CV_32FC2, float(0));
+
+    needStopTrain_ = false;
     train(_tmpl, 1.0); // train with initial frame
  }
+
 // Update position based on the new frame
-cv::Rect KCFTracker::update(cv::Mat image)
+cv::Rect2f KCFTracker::update(cv::Mat image)
 {
     if (_roi.x + _roi.width <= 0) _roi.x = -_roi.width + 1;
     if (_roi.y + _roi.height <= 0) _roi.y = -_roi.height + 1;
@@ -180,11 +187,14 @@ cv::Rect KCFTracker::update(cv::Mat image)
     float cx = _roi.x + _roi.width / 2.0f;
     float cy = _roi.y + _roi.height / 2.0f;
 
-
     float peak_value;
     cv::Point2f res = detect(_tmpl, getFeatures(image, 0, 1.0f), peak_value);
 
     if (scale_step != 1) {
+        float bestScale = _scale;
+        float bestW = _roi.width;
+        float bestH = _roi.height;
+
         // Test at a smaller _scale
         float new_peak_value;
         cv::Point2f new_res = detect(_tmpl, getFeatures(image, 0, 1.0f / scale_step), new_peak_value);
@@ -192,22 +202,29 @@ cv::Rect KCFTracker::update(cv::Mat image)
         if (scale_weight * new_peak_value > peak_value) {
             res = new_res;
             peak_value = new_peak_value;
-            _scale /= scale_step;
-            _roi.width /= scale_step;
-            _roi.height /= scale_step;
+            bestScale = _scale / scale_step;
+            bestW = _roi.width / scale_step;
+            bestH = _roi.height / scale_step;
         }
 
         // Test at a bigger _scale
         new_res = detect(_tmpl, getFeatures(image, 0, scale_step), new_peak_value);
 
-        if (scale_weight * new_peak_value > peak_value) {
+        if (scale_weight * new_peak_value > peak_value)
+        {
             res = new_res;
             peak_value = new_peak_value;
-            _scale *= scale_step;
-            _roi.width *= scale_step;
-            _roi.height *= scale_step;
+            bestScale = _scale * scale_step;
+            bestW = _roi.width * scale_step;
+            bestH = _roi.height * scale_step;
         }
+
+        _scale = bestScale;
+        _roi.width = bestW;
+        _roi.height = bestH;
     }
+
+    _accuracy = peak_value;
 
     // Adjust by cell size and _scale
     _roi.x = cx - _roi.width / 2.0f + ((float) res.x * cell_size * _scale);
@@ -225,6 +242,193 @@ cv::Rect KCFTracker::update(cv::Mat image)
     return _roi;
 }
 
+cv::Rect2f KCFTracker::update(cv::Mat image, int size)
+{
+    if (_roi.x + _roi.width <= 0) _roi.x = -_roi.width + 1;
+    if (_roi.y + _roi.height <= 0) _roi.y = -_roi.height + 1;
+    if (_roi.x >= image.cols - 1) _roi.x = image.cols - 2;
+    if (_roi.y >= image.rows - 1) _roi.y = image.rows - 2;
+
+    float cx = _roi.x + _roi.width / 2.0f;
+    float cy = _roi.y + _roi.height / 2.0f;
+
+    float scale = size / (float)_roi.width;
+
+    float peak_value;
+    cv::Point2f res = detect(_tmpl, getFeatures(image, 0, scale), peak_value);
+
+    _scale *= scale;
+    _roi.width *= scale;
+    _roi.height *= scale;
+
+    _accuracy = peak_value;
+
+    // Adjust by cell size and _scale
+    _roi.x = cx - _roi.width / 2.0f + ((float) res.x * cell_size * _scale);
+    _roi.y = cy - _roi.height / 2.0f + ((float) res.y * cell_size * _scale);
+
+    if (_roi.x >= image.cols - 1) _roi.x = image.cols - 1;
+    if (_roi.y >= image.rows - 1) _roi.y = image.rows - 1;
+    if (_roi.x + _roi.width <= 0) _roi.x = -_roi.width + 2;
+    if (_roi.y + _roi.height <= 0) _roi.y = -_roi.height + 2;
+
+    assert(_roi.width >= 0 && _roi.height >= 0);
+    cv::Mat x = getFeatures(image, 0);
+    train(x, interp_factor);
+
+    return _roi;
+}
+
+// Update position based on the new frame
+cv::Rect2f KCFTracker::detectAll(cv::Mat image, const cv::Rect& rect, float scaleStep, int numZoomSteps)
+{
+    _roi = rect;
+    if (_roi.x + _roi.width <= 0) _roi.x = -_roi.width + 1;
+    if (_roi.y + _roi.height <= 0) _roi.y = -_roi.height + 1;
+    if (_roi.x >= image.cols - 1) _roi.x = image.cols - 2;
+    if (_roi.y >= image.rows - 1) _roi.y = image.rows - 2;
+
+    float peak_value = -1e20;
+    cv::Point2f res;
+
+    float bestScale = _scale;
+    float bestW = _roi.width;
+    float bestH = _roi.height;
+    int bestX = _roi.x;
+    int bestY = _roi.y;
+    cv::Rect tmpRoi = _roi;
+    for (int i  = -numZoomSteps; i <= numZoomSteps; i++)
+    {
+        float step = std::pow(scaleStep, i);
+//        std::cout << "++++++++++++" << numZoomSteps << " " << step << std::endl;
+
+        // search shifts
+        //for (int y = 0; y < image.rows; y += std::max(1, int(_roi.height / 2)))
+        int y = rect.y;
+        {
+            for (int x = 0; x < image.cols; x += std::max(1, int(_roi.width / 2)))
+            {
+                _roi.x = x;
+                _roi.y = y;
+                _roi.width = tmpRoi.width;
+                _roi.height = tmpRoi.height;
+
+                float new_peak_value;
+                cv::Point2f new_res = detect(_tmpl, getFeatures(image, 0, step, false), new_peak_value);
+
+                if (new_peak_value > peak_value)
+                {
+                    //std::cout << "+ " << new_peak_value << std::endl;
+                    res = new_res;
+                    peak_value = new_peak_value;
+                    bestScale = _scale * step;
+                    bestW = _roi.width * step;
+                    bestH = _roi.height * step;
+                    bestX = x * step;
+                    bestY = y * step;
+                }
+            }
+        }
+    }
+
+    _scale = bestScale;
+    _roi.width = bestW;
+    _roi.height = bestH;
+    _roi.x = bestX;
+    _roi.y = bestY;
+
+    float cx = _roi.x + _roi.width / 2.0f;
+    float cy = _roi.y + _roi.height / 2.0f;
+
+    // Adjust by cell size and _scale
+    _roi.x = cx - _roi.width / 2.0f + ((float) res.x * cell_size * _scale);
+    _roi.y = cy - _roi.height / 2.0f + ((float) res.y * cell_size * _scale);
+
+    if (_roi.x >= image.cols - 1) _roi.x = image.cols - 1;
+    if (_roi.y >= image.rows - 1) _roi.y = image.rows - 1;
+    if (_roi.x + _roi.width <= 0) _roi.x = -_roi.width + 2;
+    if (_roi.y + _roi.height <= 0) _roi.y = -_roi.height + 2;
+
+    assert(_roi.width >= 0 && _roi.height >= 0);
+    cv::Mat x = getFeatures(image, 0);
+    train(x, interp_factor);
+
+    return _roi;
+}
+
+cv::Rect2f KCFTracker::updateZoom(cv::Mat image, int xPos, int yPos, float scaleStep, int numZoomSteps)
+{
+    _roi.x = xPos - _roi.width / 2;
+    _roi.y = yPos - _roi.height / 2;
+
+    if (_roi.x + _roi.width <= 0) _roi.x = -_roi.width + 1;
+    if (_roi.y + _roi.height <= 0) _roi.y = -_roi.height + 1;
+    if (_roi.x >= image.cols - 1) _roi.x = image.cols - 2;
+    if (_roi.y >= image.rows - 1) _roi.y = image.rows - 2;
+
+    float peak_value = -1e20;
+    cv::Point2f res;
+
+    float bestScale = _scale;
+    float bestW = _roi.width;
+    float bestH = _roi.height;
+    for (int i  = -numZoomSteps; i <= numZoomSteps; i++)
+    {
+        float step = std::pow(scaleStep, i);
+        if (_roi.width * step < 20 || _roi.width * step > 200)
+        {
+            break;
+        }
+        float new_peak_value;
+        cv::Point2f new_res = detect(_tmpl, getFeatures(image, 0, step, false), new_peak_value);
+        if (new_peak_value > peak_value)
+        {
+            res = new_res;
+            peak_value = new_peak_value;
+            bestScale = _scale * step;
+            bestW = _roi.width * step;
+            bestH = _roi.height * step;
+        }
+    }
+
+    float cx = _roi.x + _roi.width / 2.0f;
+    float cy = _roi.y + _roi.height / 2.0f;
+
+    _scale = bestScale;
+    _roi.width = bestW;
+    _roi.height = bestH;
+    _accuracy = peak_value;
+
+    // Adjust by cell size and _scale
+    _roi.x = cx - _roi.width / 2.0f + ((float) res.x * cell_size * _scale);
+    _roi.y = cy - _roi.height / 2.0f + ((float) res.y * cell_size * _scale);
+
+    if (_roi.x >= image.cols - 1) _roi.x = image.cols - 1;
+    if (_roi.y >= image.rows - 1) _roi.y = image.rows - 1;
+    if (_roi.x + _roi.width <= 0) _roi.x = -_roi.width + 2;
+    if (_roi.y + _roi.height <= 0) _roi.y = -_roi.height + 2;
+
+    assert(_roi.width >= 0 && _roi.height >= 0);
+    cv::Mat x = getFeatures(image, 0);
+    train(x, interp_factor);
+
+    return _roi;
+}
+
+void KCFTracker::setRect(const cv::Rect2f& rect)
+{
+    _roi = rect;
+}
+
+void KCFTracker::stopTrain(bool needStop)
+{
+    needStopTrain_ = needStop;
+}
+
+float KCFTracker::getAccuracy() const
+{
+    return _accuracy;
+}
 
 // Detect object in the current frame.
 cv::Point2f KCFTracker::detect(cv::Mat z, cv::Mat x, float &peak_value)
@@ -260,6 +464,11 @@ cv::Point2f KCFTracker::detect(cv::Mat z, cv::Mat x, float &peak_value)
 // train tracker with a single image
 void KCFTracker::train(cv::Mat x, float train_interp_factor)
 {
+    if (needStopTrain_)
+    {
+        return;
+    }
+
     using namespace FFTTools;
 
     cv::Mat k = gaussianCorrelation(x, x);
@@ -339,67 +548,32 @@ cv::Mat KCFTracker::createGaussianPeak(int sizey, int sizex)
 }
 
 // Obtain sub-window from image, with replication-padding and extract features
-cv::Mat KCFTracker::getFeatures(const cv::Mat & image, bool inithann, float scale_adjust)
-{
-    cv::Rect extracted_roi;
-
-    float cx = _roi.x + _roi.width / 2;
-    float cy = _roi.y + _roi.height / 2;
-
-    if (inithann) {
-        int padded_w = _roi.width * padding;
-        int padded_h = _roi.height * padding;
-        
-        if (template_size > 1) {  // Fit largest dimension to the given template size
-            if (padded_w >= padded_h)  //fit to width
-                _scale = padded_w / (float) template_size;
-            else
-                _scale = padded_h / (float) template_size;
-
-            _tmpl_sz.width = padded_w / _scale;
-            _tmpl_sz.height = padded_h / _scale;
-        }
-        else {  //No template size given, use ROI size
-            _tmpl_sz.width = padded_w;
-            _tmpl_sz.height = padded_h;
-            _scale = 1;
-            // original code from paper:
-            /*if (sqrt(padded_w * padded_h) >= 100) {   //Normal size
-                _tmpl_sz.width = padded_w;
-                _tmpl_sz.height = padded_h;
-                _scale = 1;
-            }
-            else {   //ROI is too big, track at half size
-                _tmpl_sz.width = padded_w / 2;
-                _tmpl_sz.height = padded_h / 2;
-                _scale = 2;
-            }*/
-        }
-
-        if (_hogfeatures) {
-            // Round to cell size and also make it even
-            _tmpl_sz.width = ( ( (int)(_tmpl_sz.width / (2 * cell_size)) ) * 2 * cell_size ) + cell_size*2;
-            _tmpl_sz.height = ( ( (int)(_tmpl_sz.height / (2 * cell_size)) ) * 2 * cell_size ) + cell_size*2;
-        }
-        else {  //Make number of pixels even (helps with some logic involving half-dimensions)
-            _tmpl_sz.width = (_tmpl_sz.width / 2) * 2;
-            _tmpl_sz.height = (_tmpl_sz.height / 2) * 2;
-        }
-    }
-
-    extracted_roi.width = scale_adjust * _scale * _tmpl_sz.width;
-    extracted_roi.height = scale_adjust * _scale * _tmpl_sz.height;
-
-    // center roi with new size
-    extracted_roi.x = cx - extracted_roi.width / 2;
-    extracted_roi.y = cy - extracted_roi.height / 2;
+cv::Mat KCFTracker::getFeatures(const cv::Mat & image, bool inithann, float scale_adjust, bool saveFrame)
+{   
+    cv::Rect extracted_roi = getExtractedRoi(inithann, scale_adjust);
 
     cv::Mat FeaturesMap;  
     cv::Mat z = RectTools::subwindow(image, extracted_roi, cv::BORDER_REPLICATE);
-    
+
     if (z.cols != _tmpl_sz.width || z.rows != _tmpl_sz.height) {
         cv::resize(z, z, _tmpl_sz);
-    }   
+    }
+
+//    if (saveFrame || inithann)
+//    {
+//        static int i = 0;
+//        i++;
+//        std::stringstream str;
+//        str << "1/";
+//        if (inithann)
+//        {
+//            str << "___";
+//        }
+//        str << i << ".png";
+
+//        std::cout << _scale << "     " << str.str() << std::endl;
+//        cv::imwrite(str.str(), z);
+//    }
 
     // HOG features
     if (_hogfeatures) {
@@ -476,6 +650,64 @@ cv::Mat KCFTracker::getFeatures(const cv::Mat & image, bool inithann, float scal
     }
     FeaturesMap = hann.mul(FeaturesMap);
     return FeaturesMap;
+}
+
+cv::Rect KCFTracker::getExtractedRoi(bool inithann, float scale_adjust)
+{
+    cv::Rect extracted_roi;
+
+    float cx = _roi.x + _roi.width / 2;
+    float cy = _roi.y + _roi.height / 2;
+
+    if (inithann) {
+        int padded_w = _roi.width * padding;
+        int padded_h = _roi.height * padding;
+
+        if (template_size > 1) {  // Fit largest dimension to the given template size
+            if (padded_w >= padded_h)  //fit to width
+                _scale = padded_w / (float) template_size;
+            else
+                _scale = padded_h / (float) template_size;
+
+            _tmpl_sz.width = padded_w / _scale;
+            _tmpl_sz.height = padded_h / _scale;
+        }
+        else {  //No template size given, use ROI size
+            _tmpl_sz.width = padded_w;
+            _tmpl_sz.height = padded_h;
+            _scale = 1;
+            // original code from paper:
+            /*if (sqrt(padded_w * padded_h) >= 100) {   //Normal size
+                _tmpl_sz.width = padded_w;
+                _tmpl_sz.height = padded_h;
+                _scale = 1;
+            }
+            else {   //ROI is too big, track at half size
+                _tmpl_sz.width = padded_w / 2;
+                _tmpl_sz.height = padded_h / 2;
+                _scale = 2;
+            }*/
+        }
+
+        if (_hogfeatures) {
+            // Round to cell size and also make it even
+            _tmpl_sz.width = ( ( (int)(_tmpl_sz.width / (2 * cell_size)) ) * 2 * cell_size ) + cell_size*2;
+            _tmpl_sz.height = ( ( (int)(_tmpl_sz.height / (2 * cell_size)) ) * 2 * cell_size ) + cell_size*2;
+        }
+        else {  //Make number of pixels even (helps with some logic involving half-dimensions)
+            _tmpl_sz.width = (_tmpl_sz.width / 2) * 2;
+            _tmpl_sz.height = (_tmpl_sz.height / 2) * 2;
+        }
+    }
+
+    extracted_roi.width = scale_adjust * _scale * _tmpl_sz.width;
+    extracted_roi.height = scale_adjust * _scale * _tmpl_sz.height;
+
+    // center roi with new size
+    extracted_roi.x = cx - extracted_roi.width / 2;
+    extracted_roi.y = cy - extracted_roi.height / 2;
+
+    return extracted_roi;
 }
     
 // Initialize Hanning window. Function called only in the first frame.

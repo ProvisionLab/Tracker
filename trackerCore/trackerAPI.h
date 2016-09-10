@@ -4,6 +4,8 @@
 #include "kcftracker.hpp"
 #include "rdetector.h"
 
+const int HISTORY_SIZE = 30;
+
 class TrackerAPI
 {
 public:
@@ -24,6 +26,8 @@ public:
      */
     void init(const cv::Mat& left, const cv::Rect& rect);
 
+    void stopTrain(bool needStop);
+
     /**
      * @brief detect tracker on next frame and project tracker from left frame on right frame
      * @param left - left camera image
@@ -31,8 +35,11 @@ public:
      * @param resultL - tracker on left image
      * @param resultR - tracker on right image
      */
-    void detect(const cv::Mat& left, const cv::Mat& right,
-                cv::Rect& resultL, cv::Rect& resultR);
+    void detect(const cv::Mat& left, cv::Rect2f &resultL, int x = -1, int y = -1, int w = -1);
+
+    void setRect(const cv::Rect2f& rect);
+
+    float getAccuracy() const;
 
     /**
      * @brief reset tracker
@@ -43,6 +50,12 @@ private:
     const bool hog_;
     const bool lab_;
     const bool multiScale_;
+
+    float accuracy_;
+//    int sizes[HISTORY_SIZE];
+//    int posX[HISTORY_SIZE];
+//    int posY[HISTORY_SIZE];
+//    int numFrames;
 
     KCFTracker* tracker_;
 };

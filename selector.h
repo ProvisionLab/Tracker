@@ -13,7 +13,9 @@ public:
     bool isSelected() const;
     bool isSelecting() const;
 
-    const cv::Rect& getRect() const;
+    void setScale(float scaleX, float scaleY);
+
+    cv::Rect getRect() const;
     void draw(cv::Mat& frame);
 
     void reset();
@@ -23,6 +25,8 @@ private:
     cv::Rect rect_;
     bool isStartSelection_;
     bool isEndSelection_;
+    float scaleX_;
+    float scaleY_;
 };
 
 

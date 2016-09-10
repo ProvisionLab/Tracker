@@ -1,9 +1,12 @@
 #include "selector.h"
+#include <iostream>
 
 
 Selector::Selector() :
+    isStartSelection_(false),
     isEndSelection_(false),
-    isStartSelection_(false)
+    scaleX_(1.f),
+    scaleY_(1.f)
 {
 }
 
@@ -20,14 +23,15 @@ void Selector::setEnd(int x, int y, bool isFinal)
     x2 = x;
     y2 = y;
 
-    if (x1 == x2 || y1 == y2)
+    const int MIN_SIZE = 25;
+    if (std::abs(x1 - x2) < MIN_SIZE || std::abs(y1 - y2) < MIN_SIZE)
     {
         if (isFinal)
         {
             isStartSelection_ = false;
             isEndSelection_ = false;
+            return;
         }
-        return;
     }
 
     rect_.x = std::min(x1, x2);
@@ -52,9 +56,20 @@ bool Selector::isSelecting() const
     return isStartSelection_;
 }
 
-const cv::Rect& Selector::getRect() const
+void Selector::setScale(float scaleX, float scaleY)
 {
-    return rect_;
+    scaleX_ = scaleX;
+    scaleY_ = scaleY;
+}
+
+cv::Rect Selector::getRect() const
+{
+    cv::Rect rect = rect_;
+    rect.x *= scaleX_;
+    rect.y *= scaleY_;
+    rect.width *= scaleX_;
+    rect.height *= scaleY_;
+    return rect;
 }
 
 void Selector::draw(cv::Mat &frame)
@@ -66,4 +81,6 @@ void Selector::reset()
 {
     isEndSelection_ = false;
     isStartSelection_ = false;
+    x1 = x2 = y1 = y2 = 0;
+    rect_ = cv::Rect();
 }

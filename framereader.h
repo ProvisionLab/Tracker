@@ -11,9 +11,12 @@ class FrameReader
 public:
     FrameReader();
 
-    void initCamera(int cameraNumber);
-    void initVideo(std::string videoPath);
-    void initStereo(int cam1, int cam2);
+    std::string initVideo(std::string videoPath);
+    std::string initStereo(int cam1, int cam2);
+
+    void setResolution(const cv::Size& resolution);
+
+    void close();
 
     bool getFrame(cv::Mat& left, cv::Mat& right);
     long getFrameNum();
@@ -21,17 +24,18 @@ public:
 
     void pause(bool pause);
     bool isPause() const;
+    bool isFinish() const;
 
 private:
-    void check();
-
-private:
+    cv::Size cameraResolution_;
     cv::VideoCapture videoCapture_;
     cv::VideoCapture videoCapture2_;
     VideoGenerator rightVideoGenerator;
     cv::Mat leftFrame_, rightFrame_;
     bool pause_;
     long frameNum_;
+    bool isFinish_;
+    int activeCam1, activeCam2;
 };
 
 #endif // FRAMEREADER_H

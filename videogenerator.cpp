@@ -17,10 +17,10 @@ void VideoGenerator::update(const cv::Mat& source, cv::Mat& target)
     {
         target = cv::Mat::zeros(source.size(), source.type());
 
-        int maxShiftX = std::min(150, source.cols / 4);
+        int maxShiftX = std::min(0, source.cols / 4);
         int shiftX = maxShiftX * (sin(iterationNumber_ / 100.) + 1.) / 2;
 
-        int maxShiftY = std::min(40, source.rows / 20);
+        int maxShiftY = std::min(0, source.rows / 20);
         int shiftY = maxShiftY * (sin(iterationNumber_ / 200.) + 1.) / 2;
 
         cv::Rect sourceRect(0, shiftY, source.cols - shiftX, source.rows - shiftY);

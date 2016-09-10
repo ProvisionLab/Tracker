@@ -5,9 +5,12 @@ INPUT(
 ./release\rdetector.o
 ./release\selector.o
 ./release\framereader.o
-./release\mainwindow.o
 ./release\fpscounter.o
 ./release\videogenerator.o
 ./release\trackerAPI.o
+./release\cameraswindow.o
+./release\mainwindow.o
+./release\qrc_style.o
+./release\moc_cameraswindow.o
 ./release\moc_mainwindow.o
 );

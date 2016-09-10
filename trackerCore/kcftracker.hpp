@@ -98,7 +98,15 @@ public:
     virtual void init(const cv::Rect &roi, cv::Mat image);
     
     // Update position based on the new frame
-    virtual cv::Rect update(cv::Mat image);
+    virtual cv::Rect2f update(cv::Mat image);
+    virtual cv::Rect2f update(cv::Mat image, int size);
+    virtual cv::Rect2f detectAll(cv::Mat image, const cv::Rect& rect, float scaleStep, int numZoomSteps);
+    virtual cv::Rect2f updateZoom(cv::Mat image, int xPos, int yPos, float scaleStep, int numZoomSteps);
+
+    void setRect(const cv::Rect2f& rect);
+    void stopTrain(bool needStop);
+
+    float getAccuracy() const;
 
     float interp_factor; // linear interpolation factor for adaptation
     float sigma; // gaussian kernel bandwidth
@@ -110,6 +118,8 @@ public:
     int template_size; // template size
     float scale_step; // scale step for multi-scale estimation
     float scale_weight;  // to downweight detection scores of other scales for added stability
+
+    bool needStopTrain_;
 
 protected:
     // Detect object in the current frame.
@@ -125,7 +135,8 @@ protected:
     cv::Mat createGaussianPeak(int sizey, int sizex);
 
     // Obtain sub-window from image, with replication-padding and extract features
-    cv::Mat getFeatures(const cv::Mat & image, bool inithann, float scale_adjust = 1.0f);
+    cv::Mat getFeatures(const cv::Mat & image, bool inithann, float scale_adjust = 1.0f, bool saveFrame = false);
+    cv::Rect getExtractedRoi(bool inithann, float scale_adjust = 1.0f);
 
     // Initialize Hanning window. Function called only in the first frame.
     void createHanningMats();
@@ -148,4 +159,5 @@ private:
     int _gaussian_size;
     bool _hogfeatures;
     bool _labfeatures;
+    float _accuracy;
 };
