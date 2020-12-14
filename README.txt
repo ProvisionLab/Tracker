@@ -27,3 +27,5 @@ Press 'r' for reset tracking and select new object.
 Tracker contains in trackerCore/ folder. Another souses using for GUI, right frame generation, time counting...
 
 Tracker api - trackerCore/trackerAPI. API description added in comments.
+
+Check further details on https://camdog.ai (Video surveillance as a service systme)
